@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stm32f446_sys.h>
 #include <stm32f446_gpio.h>
 #include <stm32f446_usart.h>
@@ -20,8 +21,12 @@ void USART2_Transmit_CmpltCallback(void);
 void USART2_Receive_OvrunCallback(void);
 void USART2_Receive_CmpltCallback(void);
 
+/*CAN1 callback function*/
+void CAN1_FIFO0ReceivedCallback(void);
+
 bool usart2_tx_state = false;
 bool usart2_rx_state = false;
+bool can1_rx0_state = false;
 
 CAN Can1(CAN1, PA11, PA12);
 //CAN Can2(CAN2, PB5, PB6);
@@ -48,11 +53,14 @@ int main(void)
 	pinMode(B1, INPUT);
 
 	Serial.init(115200);
-	Serial.setCallback(TX_COMPLETE, USART2_Transmit_CmpltCallback);
-	Serial.setCallback(RX_OVERRUN, USART2_Receive_OvrunCallback);
-	Serial.setCallback(RX_COMPLETE, USART2_Receive_CmpltCallback);
+	Serial.setCallback(USART_TX_COMPLETE, USART2_Transmit_CmpltCallback);
+	Serial.setCallback(USART_RX_OVERRUN, USART2_Receive_OvrunCallback);
+	Serial.setCallback(USART_RX_COMPLETE, USART2_Receive_CmpltCallback);
+
+	setvbuf(stdout, NULL, _IONBF, 0);
 
 	Can1.init(CAN1_BITRATE);
+	Can1.setCallback(CAN_RX0_COMPLETE, CAN1_FIFO0ReceivedCallback);
 	if(Can1.singleFilter(filter0) == SYS_ERROR) {
 		Serial.println("CAN1 filter NG!");
 	} else {
@@ -79,17 +87,20 @@ int main(void)
 	txdata.data[6] = 0x66;
 	txdata.data[7] = 0x77;
 
+	CANRxHeader_t rxdata;
+
 	while(1)
 	{
-		CANRxHeader_t rxdata;
-		if(Can1.receive(&rxdata, FIFO0) == SYS_OK) {
-			Serial.print("ID:");
-			Serial.print(rxdata.id);
-			for(uint8_t i = 0; i < rxdata.dlc; i++) {
-				Serial.print("   ");
-				Serial.print(rxdata.data[i]);
+		if(can1_rx0_state == false) {
+			Can1.receiveIT(&rxdata, FIFO0);
+		} else {
+			printf("ID:%lx   ", (uint32_t)rxdata.id);
+			for(uint8_t i = 0; i < 8; i++) {
+				printf("%lx  ", (uint32_t)rxdata.data[i]);
 			}
-			Serial.println("");
+			printf("\n");
+
+			can1_rx0_state = false;
 		}
 	}
 
@@ -109,4 +120,9 @@ void USART2_Receive_OvrunCallback(void)
 void USART2_Receive_CmpltCallback(void)
 {
 	usart2_rx_state = true;
+}
+
+void CAN1_FIFO0ReceivedCallback(void)
+{
+	can1_rx0_state = true;
 }

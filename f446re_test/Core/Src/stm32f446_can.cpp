@@ -11,16 +11,24 @@ static bool	filter_flag = false;
 
 CAN::CAN(CAN_TypeDef *hcan)
 {
-	ch			= hcan;
-	can_state	= SLEEPMODE;
+	ch							= hcan;
+	can_state					= SLEEPMODE;
+	prxheader[0]				= NULL;
+	prxheader[1]				= NULL;
+	CAN_RX0ReceivedCallback		= NULL;
+	CAN_RX1ReceivedCallback		= NULL;
 }
 
 CAN::CAN(CAN_TypeDef* hcan, GPIOPin_t rx, GPIOPin_t tx)
 {
-	ch			= hcan;
-	can_state	= SLEEPMODE;
-	rx_pin		= rx;
-	tx_pin		= tx;
+	ch							= hcan;
+	can_state					= SLEEPMODE;
+	rx_pin						= rx;
+	tx_pin						= tx;
+	prxheader[0]				= NULL;
+	prxheader[1]				= NULL;
+	CAN_RX0ReceivedCallback		= NULL;
+	CAN_RX1ReceivedCallback		= NULL;
 }
 
 SysError_t CAN::init(uint64_t bitrate)
@@ -247,9 +255,8 @@ SysError_t CAN::start(void)
 		return SYS_ERROR;
 	}
 
-	if(filter_flag == true) {
-		CAN1->FMR &= ~CAN_FMR_FINIT;
-	}
+	CAN1->FMR &= ~CAN_FMR_FINIT;
+
 
 	start = GetTick();
 	ch->MCR &= ~CAN_MCR_INRQ;
@@ -264,11 +271,29 @@ SysError_t CAN::start(void)
 	return SYS_OK;
 }
 
+void CAN::setCallback(CANCallbackType_t type, CallbackFunc_t func)
+{
+	switch (type) {
+		case CAN_TX_COMPLETE:
+			break;
+
+		case CAN_RX0_COMPLETE:
+			CAN_RX0ReceivedCallback = func;
+			break;
+
+		case CAN_RX1_COMPLETE:
+			CAN_RX1ReceivedCallback = func;
+			break;
+
+		default:
+			break;
+	}
+}
+
 SysError_t CAN::transmit(CANTxHeader_t *txheader, uint32_t timeout)
 {
 	uint32_t tsr;
 	uint32_t start;
-	uint32_t TXOKx_pos;
 	uint8_t mailbox;
 
 	if(ch == NULL || txheader == NULL) {
@@ -314,24 +339,7 @@ SysError_t CAN::transmit(CANTxHeader_t *txheader, uint32_t timeout)
 			}
 		}
 
-		switch (mailbox) {
-			case 0:
-				TXOKx_pos = CAN_TSR_TXOK0;
-				break;
-
-			case 1:
-				TXOKx_pos = CAN_TSR_TXOK1;
-				break;
-
-			case 2:
-				TXOKx_pos = CAN_TSR_TXOK2;
-				break;
-
-			default:
-				break;
-		}
-
-		if(!(ch->TSR & (1UL << TXOKx_pos))) {
+		if(!(ch->TSR & (1UL << (mailbox * 8 + 1)))) {
 			return SYS_ERROR;
 		}
 	} else {
@@ -391,6 +399,91 @@ SysError_t CAN::receive(CANRxHeader_t* rxheader, CANFifo_t fifo)
 	}
 
 	return SYS_OK;
+}
+
+SysError_t CAN::receiveIT(CANRxHeader_t* rxheader, CANFifo_t fifo)
+{
+	if(ch == NULL || rxheader == NULL) {
+		return SYS_ERROR;
+	}
+
+	prxheader[fifo] = rxheader;
+	if(fifo == FIFO0) {
+		rxfifo_standby[fifo] = true;
+		ch->IER |= CAN_IER_FMPIE0;
+	} else if(fifo == FIFO1) {
+		rxfifo_standby[fifo] = true;
+		ch->IER |= CAN_IER_FMPIE1;
+	} else {
+		return SYS_ERROR;
+	}
+
+	return SYS_OK;
+}
+
+void CAN::TX_IRQHander(void)
+{
+}
+
+void CAN::RX0_IRQHander(void)
+{
+	uint32_t rfr;
+	uint32_t rir;
+	uint32_t rdtr;
+	uint32_t rdlr;
+	uint32_t rdhr;
+
+	if(ch == NULL) {
+		return;
+	}
+
+	rfr = ch->RF0R;
+	if((rfr & CAN_RF0R_FMP0_Msk) && (rxfifo_standby[0] == true)) {
+		ch->IER &= ~CAN_IER_FMPIE0;
+		rxfifo_standby[0] = false;
+
+		rir = ch->sFIFOMailBox[0].RIR;
+		rdtr = ch->sFIFOMailBox[0].RDTR;
+		rdlr = ch->sFIFOMailBox[0].RDLR;
+		rdhr = ch->sFIFOMailBox[0].RDHR;
+
+		if(rir & CAN_RI0R_IDE_Msk) {
+			prxheader[0]->id_type = EXID;
+			prxheader[0]->id = (rir & CAN_RI0R_EXID_Msk) >> CAN_RI0R_EXID_Pos;
+		} else {
+			prxheader[0]->id_type = STID;
+			prxheader[0]->id = (rir & CAN_RI0R_STID_Msk) >> CAN_RI0R_STID_Pos;
+		}
+
+		prxheader[0]->dlc = (rdtr & CAN_RDT0R_DLC_Msk) >> CAN_RDT0R_DLC_Pos;
+		prxheader[0]->filterMach = (rdtr & CAN_RDT0R_FMI_Msk) >> CAN_RDT0R_FMI_Pos;
+
+		if(rir & CAN_RI0R_RTR_Msk) {
+			prxheader[0]->rtr = REMOTE_FRAME;
+		} else {
+			prxheader[0]->rtr = DATA_FRAME;
+
+			prxheader[0]->data[0] = (uint8_t)((rdlr & CAN_RDL0R_DATA0_Msk) >> CAN_RDL0R_DATA0_Pos);
+			prxheader[0]->data[1] = (uint8_t)((rdlr & CAN_RDL0R_DATA1_Msk) >> CAN_RDL0R_DATA1_Pos);
+			prxheader[0]->data[2] = (uint8_t)((rdlr & CAN_RDL0R_DATA2_Msk) >> CAN_RDL0R_DATA2_Pos);
+			prxheader[0]->data[3] = (uint8_t)((rdlr & CAN_RDL0R_DATA3_Msk) >> CAN_RDL0R_DATA3_Pos);
+			prxheader[0]->data[4] = (uint8_t)((rdhr & CAN_RDH0R_DATA4_Msk) >> CAN_RDH0R_DATA4_Pos);
+			prxheader[0]->data[5] = (uint8_t)((rdhr & CAN_RDH0R_DATA5_Msk) >> CAN_RDH0R_DATA5_Pos);
+			prxheader[0]->data[6] = (uint8_t)((rdhr & CAN_RDH0R_DATA6_Msk) >> CAN_RDH0R_DATA6_Pos);
+			prxheader[0]->data[7] = (uint8_t)((rdhr & CAN_RDH0R_DATA7_Msk) >> CAN_RDH0R_DATA7_Pos);
+		}
+
+		ch->RF0R |= CAN_RF0R_RFOM0;
+
+		if(CAN_RX0ReceivedCallback != NULL) {
+			CAN_RX0ReceivedCallback();
+		}
+	}
+}
+
+void CAN::RX1_IRQHander(void)
+{
+
 }
 
 void CAN::pinInit(void)

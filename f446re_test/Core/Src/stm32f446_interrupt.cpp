@@ -7,10 +7,13 @@
 
 #include <stm32f446_sys.h>
 #include <stm32f446_usart.h>
+#include <stm32f446_can.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+extern CAN Can1;
 
 void SysTick_Handler(void)
 {
@@ -20,7 +23,16 @@ void SysTick_Handler(void)
 void USART2_IRQHandler(void)
 {
 	Serial.IRQ_Handler();
-	GPIOA->ODR ^= (1UL << 5);
+}
+
+void CAN1_TX_IRQHander(void)
+{
+	Can1.TX_IRQHander();
+}
+
+void CAN1_RX0_IRQHandler(void)
+{
+	Can1.RX0_IRQHander();
 }
 
 #ifdef __cplusplus

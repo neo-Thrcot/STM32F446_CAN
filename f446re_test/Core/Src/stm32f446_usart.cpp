@@ -183,21 +183,34 @@ SysError_t USART::init(uint32_t baudrate, GPIOPin_t rx, GPIOPin_t tx)
 void USART::setCallback(USARTCallbackType_t type, CallbackFunc_t func)
 {
 	switch (type) {
-		case TX_COMPLETE:
+		case USART_TX_COMPLETE:
 			Transmit_CmpltCallback = func;
 			break;
 
-		case RX_COMPLETE:
+		case USART_RX_COMPLETE:
 			Receive_CmpltCallback = func;
 			break;
 
-		case RX_OVERRUN:
+		case USART_RX_OVERRUN:
 			Receive_OvrunCallback = func;
 			break;
 
 		default:
 			break;
 	}
+}
+
+SysError_t USART::__send(uint8_t data)
+{
+	if(ch == NULL) {
+		return SYS_ERROR;
+	}
+
+	while(!(ch->SR & USART_SR_TXE_Msk));
+	ch->DR = data;
+	while(!(ch->SR & USART_SR_TC_Msk));
+
+	return SYS_OK;
 }
 
 SysError_t USART::transmit(uint8_t* buf, uint16_t size, uint32_t timeout)
@@ -404,3 +417,13 @@ void USART::pinInit(void)
 }
 
 USART Serial(USART2, PA3, PA2);
+
+extern "C" int __io_putchar(int ch)
+{
+	if(ch == '\n') {
+		Serial.__send('\r');
+	}
+	Serial.__send((uint8_t)ch);
+
+	return 0;
+}

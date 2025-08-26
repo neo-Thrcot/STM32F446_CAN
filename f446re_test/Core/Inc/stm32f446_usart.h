@@ -18,9 +18,9 @@
 
 typedef enum
 {
-	TX_COMPLETE,
-	RX_COMPLETE,
-	RX_OVERRUN
+	USART_TX_COMPLETE,
+	USART_RX_COMPLETE,
+	USART_RX_OVERRUN
 } USARTCallbackType_t;
 
 typedef enum
@@ -41,6 +41,7 @@ class USART
 		void setCallback(USARTCallbackType_t type, CallbackFunc_t func);
 
 		/*transmit*/
+		SysError_t __send(uint8_t data);
 		SysError_t transmit(uint8_t* buf, uint16_t size, uint32_t timeout);
 		SysError_t transmit(const char* str, uint32_t timeout);
 		SysError_t transmitIT(uint8_t* buf, uint16_t size);
@@ -211,6 +212,8 @@ class USART
 		/*GPIO config function*/
 		void pinInit(void);
 };
+
+extern "C" int __io_putchar(int ch);
 
 extern USART Serial;
 

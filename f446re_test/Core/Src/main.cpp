@@ -22,14 +22,14 @@ void USART2_Receive_OvrunCallback(void);
 void USART2_Receive_CmpltCallback(void);
 
 /*CAN1 callback function*/
-void CAN1_FIFO0ReceivedCallback(void);
+void CAN2_FIFO0ReceivedCallback(void);
 
 bool usart2_tx_state = false;
 bool usart2_rx_state = false;
-bool can1_rx0_state = false;
+bool can2_rx0_state = false;
 
-CAN Can1(CAN1, PA11, PA12);
-//CAN Can2(CAN2, PB5, PB6);
+//CAN Can1(CAN1, PA11, PA12);
+CAN Can2(CAN2, PB5, PB6);
 
 CANFilter_t filter0 = {
 		.filter_num 	= 0,
@@ -59,17 +59,17 @@ int main(void)
 
 	setvbuf(stdout, NULL, _IONBF, 0);
 
-	Can1.init(CAN1_BITRATE);
-	Can1.setCallback(CAN_RX0_COMPLETE, CAN1_FIFO0ReceivedCallback);
-	if(Can1.singleFilter(filter0) == SYS_ERROR) {
-		Serial.println("CAN1 filter NG!");
+	Can2.init(CAN2_BITRATE);
+	Can2.setCallback(CAN_RX0_COMPLETE, CAN2_FIFO0ReceivedCallback);
+	if(Can2.singleFilter(filter0) == SYS_ERROR) {
+		Serial.println("CAN2 filter NG!");
 	} else {
-		Serial.println("CAN1 filter OK!");
+		Serial.println("CAN2 filter OK!");
 	}
-	if(Can1.start() == SYS_ERROR) {
-		Serial.println("CAN1 can't start!");
+	if(Can2.start() == SYS_ERROR) {
+		Serial.println("CAN2 can't start!");
 	} else {
-		Serial.println("CAN1 started!");
+		Serial.println("CAN2 started!");
 	}
 
 	CANTxHeader_t txdata = {
@@ -91,8 +91,8 @@ int main(void)
 
 	while(1)
 	{
-		if(can1_rx0_state == false) {
-			Can1.receiveIT(&rxdata, FIFO0);
+		if(can2_rx0_state == false) {
+			Can2.receiveIT(&rxdata, FIFO0);
 		} else {
 			printf("ID:%lx   ", (uint32_t)rxdata.id);
 			for(uint8_t i = 0; i < 8; i++) {
@@ -100,7 +100,7 @@ int main(void)
 			}
 			printf("\n");
 
-			can1_rx0_state = false;
+			can2_rx0_state = false;
 		}
 	}
 
@@ -122,7 +122,7 @@ void USART2_Receive_CmpltCallback(void)
 	usart2_rx_state = true;
 }
 
-void CAN1_FIFO0ReceivedCallback(void)
+void CAN2_FIFO0ReceivedCallback(void)
 {
-	can1_rx0_state = true;
+	can2_rx0_state = true;
 }

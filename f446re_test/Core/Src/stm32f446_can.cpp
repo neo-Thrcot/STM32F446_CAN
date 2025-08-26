@@ -44,6 +44,7 @@ SysError_t CAN::init(uint64_t bitrate)
 			break;
 
 		case CAN2_BASE:
+			RCC->APB1ENR |= RCC_APB1ENR_CAN1EN;
 			RCC->APB1ENR |= RCC_APB1ENR_CAN2EN;
 			CANx_TX_IRQn	= CAN2_TX_IRQn;
 			CANx_RX0_IRQn	= CAN2_RX0_IRQn;
@@ -483,7 +484,58 @@ void CAN::RX0_IRQHander(void)
 
 void CAN::RX1_IRQHander(void)
 {
+	uint32_t rfr;
+	uint32_t rir;
+	uint32_t rdtr;
+	uint32_t rdlr;
+	uint32_t rdhr;
 
+	if(ch == NULL) {
+		return;
+	}
+
+	rfr = ch->RF1R;
+	if((rfr & CAN_RF1R_FMP1_Msk) && (rxfifo_standby[1] == true)) {
+		ch->IER &= ~CAN_IER_FMPIE1;
+		rxfifo_standby[1] = false;
+
+		rir = ch->sFIFOMailBox[1].RIR;
+		rdtr = ch->sFIFOMailBox[1].RDTR;
+		rdlr = ch->sFIFOMailBox[1].RDLR;
+		rdhr = ch->sFIFOMailBox[1].RDHR;
+
+		if(rir & CAN_RI1R_EXID_Msk) {
+			prxheader[1]->id_type = EXID;
+			prxheader[1]->id = (rir & CAN_RI1R_EXID_Msk) >> CAN_RI1R_EXID_Pos;
+		} else {
+			prxheader[1]->id_type = STID;
+			prxheader[1]->id = (rir & CAN_RI1R_STID_Msk) >> CAN_RI1R_STID_Pos;
+		}
+
+		prxheader[1]->dlc = (rdtr & CAN_RDT1R_DLC_Msk) >> CAN_RDT1R_DLC_Pos;
+		prxheader[1]->filterMach = (rdtr & CAN_RDT1R_FMI_Msk) >> CAN_RDT1R_FMI_Pos;
+
+		if(rir & CAN_RI1R_RTR_Msk) {
+			prxheader[1]->rtr = REMOTE_FRAME;
+		} else {
+			prxheader[1]->rtr = DATA_FRAME;
+
+			prxheader[1]->data[0] = (uint8_t)((rdlr & CAN_RDL1R_DATA0_Msk) >> CAN_RDL1R_DATA0_Pos);
+			prxheader[1]->data[1] = (uint8_t)((rdlr & CAN_RDL1R_DATA1_Msk) >> CAN_RDL1R_DATA1_Pos);
+			prxheader[1]->data[2] = (uint8_t)((rdlr & CAN_RDL1R_DATA2_Msk) >> CAN_RDL1R_DATA2_Pos);
+			prxheader[1]->data[3] = (uint8_t)((rdlr & CAN_RDL1R_DATA3_Msk) >> CAN_RDL1R_DATA3_Pos);
+			prxheader[1]->data[4] = (uint8_t)((rdhr & CAN_RDH1R_DATA4_Msk) >> CAN_RDH1R_DATA4_Pos);
+			prxheader[1]->data[5] = (uint8_t)((rdhr & CAN_RDH1R_DATA5_Msk) >> CAN_RDH1R_DATA5_Pos);
+			prxheader[1]->data[6] = (uint8_t)((rdhr & CAN_RDH1R_DATA6_Msk) >> CAN_RDH1R_DATA6_Pos);
+			prxheader[1]->data[7] = (uint8_t)((rdhr & CAN_RDH1R_DATA7_Msk) >> CAN_RDH1R_DATA7_Pos);
+		}
+
+		ch->RF1R |= CAN_RF1R_RFOM1;
+
+		if(CAN_RX0ReceivedCallback != NULL) {
+			CAN_RX0ReceivedCallback();
+		}
+	}
 }
 
 void CAN::pinInit(void)
